@@ -21,6 +21,316 @@ If you have problems, you may need to regenerate the build system entirely.
 To do so, use the procedure documented by the package, typically 'autoreconf'.])])
 
 # ===========================================================================
+#        http://www.gnu.org/software/autoconf-archive/ax_lib_hdf5.html
+# ===========================================================================
+#
+# SYNOPSIS
+#
+#   AX_LIB_HDF5([serial/parallel])
+#
+# DESCRIPTION
+#
+#   This macro provides tests of the availability of HDF5 library.
+#
+#   The optional macro argument should be either 'serial' or 'parallel'. The
+#   former only looks for serial HDF5 installations via h5cc. The latter
+#   only looks for parallel HDF5 installations via h5pcc. If the optional
+#   argument is omitted, serial installations will be preferred over
+#   parallel ones.
+#
+#   The macro adds a --with-hdf5 option accepting one of three values:
+#
+#     no   - do not check for the HDF5 library.
+#     yes  - do check for HDF5 library in standard locations.
+#     path - complete path to the HDF5 helper script h5cc or h5pcc.
+#
+#   If HDF5 is successfully found, this macro calls
+#
+#     AC_SUBST(HDF5_VERSION)
+#     AC_SUBST(HDF5_CC)
+#     AC_SUBST(HDF5_CFLAGS)
+#     AC_SUBST(HDF5_CPPFLAGS)
+#     AC_SUBST(HDF5_LDFLAGS)
+#     AC_SUBST(HDF5_LIBS)
+#     AC_SUBST(HDF5_FC)
+#     AC_SUBST(HDF5_FFLAGS)
+#     AC_SUBST(HDF5_FLIBS)
+#     AC_DEFINE(HAVE_HDF5)
+#
+#   and sets with_hdf5="yes".  Additionally, the macro sets
+#   with_hdf5_fortran="yes" if a matching Fortran wrapper script is found.
+#   Note that Autconf's Fortran support is not used to perform this check.
+#   H5CC and H5FC will contain the appropriate serial or parallel HDF5
+#   wrapper script locations.
+#
+#   If HDF5 is disabled or not found, this macros sets with_hdf5="no" and
+#   with_hdf5_fortran="no".
+#
+#   Your configuration script can test $with_hdf to take any further
+#   actions. HDF5_{C,CPP,LD}FLAGS may be used when building with C or C++.
+#   HDF5_F{FLAGS,LIBS} should be used when building Fortran applications.
+#
+#   To use the macro, one would code one of the following in "configure.ac"
+#   before AC_OUTPUT:
+#
+#     1) dnl Check for HDF5 support
+#        AX_LIB_HDF5()
+#
+#     2) dnl Check for serial HDF5 support
+#        AX_LIB_HDF5([serial])
+#
+#     3) dnl Check for parallel HDF5 support
+#        AX_LIB_HDF5([parallel])
+#
+#   One could test $with_hdf5 for the outcome or display it as follows
+#
+#     echo "HDF5 support:  $with_hdf5"
+#
+#   You could also for example, override the default CC in "configure.ac" to
+#   enforce compilation with the compiler that HDF5 uses:
+#
+#     AX_LIB_HDF5([parallel])
+#     if test "$with_hdf5" = "yes"; then
+#             CC="$HDF5_CC"
+#     else
+#             AC_MSG_ERROR([Unable to find HDF5, we need parallel HDF5.])
+#     fi
+#
+# LICENSE
+#
+#   Copyright (c) 2009 Timothy Brown <tbrown@freeshell.org>
+#   Copyright (c) 2010 Rhys Ulerich <rhys.ulerich@gmail.com>
+#
+#   Copying and distribution of this file, with or without modification, are
+#   permitted in any medium without royalty provided the copyright notice
+#   and this notice are preserved. This file is offered as-is, without any
+#   warranty.
+
+#serial 10
+
+AC_DEFUN([AX_LIB_HDF5], [
+
+AC_REQUIRE([AC_PROG_SED])
+AC_REQUIRE([AC_PROG_AWK])
+AC_REQUIRE([AC_PROG_GREP])
+
+dnl Check first argument is one of the recognized values.
+dnl Fail eagerly if is incorrect as this simplifies case statements below.
+if   test "m4_normalize(m4_default([$1],[]))" = ""        ; then
+    : # Recognized value
+elif test "m4_normalize(m4_default([$1],[]))" = "serial"  ; then
+    : # Recognized value
+elif test "m4_normalize(m4_default([$1],[]))" = "parallel"; then
+    : # Recognized value
+else
+    AC_MSG_ERROR([
+Unrecognized value for AX[]_LIB_HDF5 within configure.ac.
+If supplied, argument 1 must be either 'serial' or 'parallel'.
+])
+fi
+
+dnl Add a default --with-hdf5 configuration option.
+AC_ARG_WITH([hdf5],
+  AS_HELP_STRING(
+    [--with-hdf5=[yes/no/PATH]],
+    m4_case(m4_normalize([$1]),
+            [serial],   [location of h5cc for serial HDF5 configuration],
+            [parallel], [location of h5pcc for parallel HDF5 configuration],
+            [location of h5cc or h5pcc for HDF5 configuration])
+  ),
+  [if test "$withval" = "no"; then
+     with_hdf5="no"
+   elif test "$withval" = "yes"; then
+     with_hdf5="yes"
+   else
+     with_hdf5="yes"
+     H5CC="$withval"
+   fi],
+   [with_hdf5="yes"]
+)
+
+dnl Set defaults to blank
+HDF5_CC=""
+HDF5_VERSION=""
+HDF5_CFLAGS=""
+HDF5_CPPFLAGS=""
+HDF5_LDFLAGS=""
+HDF5_LIBS=""
+HDF5_FC=""
+HDF5_FFLAGS=""
+HDF5_FLIBS=""
+
+dnl Try and find hdf5 compiler tools and options.
+if test "$with_hdf5" = "yes"; then
+    if test -z "$H5CC"; then
+        dnl Check to see if H5CC is in the path.
+        AC_PATH_PROGS(
+            [H5CC],
+            m4_case(m4_normalize([$1]),
+                [serial],   [h5cc],
+                [parallel], [h5pcc],
+                [h5cc h5pcc]),
+            [])
+    else
+        AC_MSG_CHECKING([Using provided HDF5 C wrapper])
+        AC_MSG_RESULT([$H5CC])
+    fi
+    AC_MSG_CHECKING([for HDF5 libraries])
+    if test ! -f "$H5CC" || test ! -x "$H5CC"; then
+        AC_MSG_RESULT([no])
+        AC_MSG_WARN(m4_case(m4_normalize([$1]),
+            [serial],  [
+Unable to locate serial HDF5 compilation helper script 'h5cc'.
+Please specify --with-hdf5=<LOCATION> as the full path to h5cc.
+HDF5 support is being disabled (equivalent to --with-hdf5=no).
+],            [parallel],[
+Unable to locate parallel HDF5 compilation helper script 'h5pcc'.
+Please specify --with-hdf5=<LOCATION> as the full path to h5pcc.
+HDF5 support is being disabled (equivalent to --with-hdf5=no).
+],            [
+Unable to locate HDF5 compilation helper scripts 'h5cc' or 'h5pcc'.
+Please specify --with-hdf5=<LOCATION> as the full path to h5cc or h5pcc.
+HDF5 support is being disabled (equivalent to --with-hdf5=no).
+]))
+        with_hdf5="no"
+        with_hdf5_fortran="no"
+    else
+        dnl Get the h5cc output
+        HDF5_SHOW=$(eval $H5CC -show)
+
+        dnl Get the actual compiler used
+        HDF5_CC=$(eval $H5CC -show | $AWK '{print $[]1}')
+        if test "$HDF5_CC" = "ccache"; then
+            HDF5_CC=$(eval $H5CC -show | $AWK '{print $[]2}')
+        fi
+
+        dnl h5cc provides both AM_ and non-AM_ options
+        dnl depending on how it was compiled either one of
+        dnl these are empty. Lets roll them both into one.
+
+        dnl Look for "HDF5 Version: X.Y.Z"
+        HDF5_VERSION=$(eval $H5CC -showconfig | $GREP 'HDF5 Version:' \
+            | $AWK '{print $[]3}')
+
+        dnl A ideal situation would be where everything we needed was
+        dnl in the AM_* variables. However most systems are not like this
+        dnl and seem to have the values in the non-AM variables.
+        dnl
+        dnl We try the following to find the flags:
+        dnl (1) Look for "NAME:" tags
+        dnl (2) Look for "H5_NAME:" tags
+        dnl (3) Look for "AM_NAME:" tags
+        dnl
+        HDF5_tmp_flags=$(eval $H5CC -showconfig \
+            | $GREP 'FLAGS\|Extra libraries:' \
+            | $AWK -F: '{printf("%s "), $[]2}' )
+
+        dnl Find the installation directory and append include/
+        HDF5_tmp_inst=$(eval $H5CC -showconfig \
+            | $GREP 'Installation point:' \
+            | $AWK -F: '{print $[]2}' )
+
+        dnl Add this to the CPPFLAGS
+        HDF5_CPPFLAGS="-I${HDF5_tmp_inst}/include"
+
+        dnl Now sort the flags out based upon their prefixes
+        for arg in $HDF5_SHOW $HDF5_tmp_flags ; do
+          case "$arg" in
+            -I*) echo $HDF5_CPPFLAGS | $GREP -e "$arg" 2>&1 >/dev/null \
+                  || HDF5_CPPFLAGS="$arg $HDF5_CPPFLAGS"
+              ;;
+            -L*) echo $HDF5_LDFLAGS | $GREP -e "$arg" 2>&1 >/dev/null \
+                  || HDF5_LDFLAGS="$arg $HDF5_LDFLAGS"
+              ;;
+            -l*) echo $HDF5_LIBS | $GREP -e "$arg" 2>&1 >/dev/null \
+                  || HDF5_LIBS="$arg $HDF5_LIBS"
+              ;;
+          esac
+        done
+
+        HDF5_LIBS="$HDF5_LIBS -lhdf5"
+        AC_MSG_RESULT([yes (version $[HDF5_VERSION])])
+
+        dnl See if we can compile
+        ax_lib_hdf5_save_CC=$CC
+        ax_lib_hdf5_save_CPPFLAGS=$CPPFLAGS
+        ax_lib_hdf5_save_LIBS=$LIBS
+        ax_lib_hdf5_save_LDFLAGS=$LDFLAGS
+        CC=$HDF5_CC
+        CPPFLAGS=$HDF5_CPPFLAGS
+        LIBS=$HDF5_LIBS
+        LDFLAGS=$HDF5_LDFLAGS
+        AC_CHECK_HEADER([hdf5.h], [ac_cv_hadf5_h=yes], [ac_cv_hadf5_h=no])
+        AC_CHECK_LIB([hdf5], [H5Fcreate], [ac_cv_libhdf5=yes],
+                     [ac_cv_libhdf5=no])
+        if test "$ac_cv_hadf5_h" = "no" && test "$ac_cv_libhdf5" = "no" ; then
+          AC_MSG_WARN([Unable to compile HDF5 test program])
+        fi
+        dnl Look for HDF5's high level library
+        AC_HAVE_LIBRARY([hdf5_hl], [HDF5_LIBS="$HDF5_LIBS -lhdf5_hl"], [], [])
+
+        CC=$ax_lib_hdf5_save_CC
+        CPPFLAGS=$ax_lib_hdf5_save_CPPFLAGS
+        LIBS=$ax_lib_hdf5_save_LIBS
+        LDFLAGS=$ax_lib_hdf5_save_LDFLAGS
+
+        AC_MSG_CHECKING([for matching HDF5 Fortran wrapper])
+        dnl Presume HDF5 Fortran wrapper is just a name variant from H5CC
+        H5FC=$(eval echo -n $H5CC | $SED -n 's/cc$/fc/p')
+        if test -x "$H5FC"; then
+            AC_MSG_RESULT([$H5FC])
+            with_hdf5_fortran="yes"
+            AC_SUBST([H5FC])
+
+            dnl Again, pry any remaining -Idir/-Ldir from compiler wrapper
+            for arg in `$H5FC -show`
+            do
+              case "$arg" in #(
+                -I*) echo $HDF5_FFLAGS | $GREP -e "$arg" >/dev/null \
+                      || HDF5_FFLAGS="$arg $HDF5_FFLAGS"
+                  ;;#(
+                -L*) echo $HDF5_FFLAGS | $GREP -e "$arg" >/dev/null \
+                      || HDF5_FFLAGS="$arg $HDF5_FFLAGS"
+                     dnl HDF5 installs .mod files in with libraries,
+                     dnl but some compilers need to find them with -I
+                     echo $HDF5_FFLAGS | $GREP -e "-I${arg#-L}" >/dev/null \
+                      || HDF5_FFLAGS="-I${arg#-L} $HDF5_FFLAGS"
+                  ;;
+              esac
+            done
+
+            dnl Make Fortran link line by inserting Fortran libraries
+            for arg in $HDF5_LIBS
+            do
+              case "$arg" in #(
+                -lhdf5_hl) HDF5_FLIBS="$HDF5_FLIBS -lhdf5hl_fortran $arg"
+                  ;; #(
+                -lhdf5)    HDF5_FLIBS="$HDF5_FLIBS -lhdf5_fortran $arg"
+                  ;; #(
+                *) HDF5_FLIBS="$HDF5_FLIBS $arg"
+                  ;;
+              esac
+            done
+        else
+            AC_MSG_RESULT([no])
+            with_hdf5_fortran="no"
+        fi
+
+	AC_SUBST([HDF5_VERSION])
+	AC_SUBST([HDF5_CC])
+	AC_SUBST([HDF5_CFLAGS])
+	AC_SUBST([HDF5_CPPFLAGS])
+	AC_SUBST([HDF5_LDFLAGS])
+	AC_SUBST([HDF5_LIBS])
+	AC_SUBST([HDF5_FC])
+	AC_SUBST([HDF5_FFLAGS])
+	AC_SUBST([HDF5_FLIBS])
+	AC_DEFINE([HAVE_HDF5], [1], [Defined if you have HDF5 support])
+    fi
+fi
+])
+
+# ===========================================================================
 #      http://www.gnu.org/software/autoconf-archive/ax_prog_cxx_mpi.html
 # ===========================================================================
 #
@@ -198,6 +508,56 @@ AC_DEFUN([_AX_PROG_CXX_MPI], [
   fi
   AC_PROG_CXX
 ])dnl _AX_PROG_CXX_MPI
+
+# ===========================================================================
+#     http://www.gnu.org/software/autoconf-archive/ax_python_module.html
+# ===========================================================================
+#
+# SYNOPSIS
+#
+#   AX_PYTHON_MODULE(modname[, fatal])
+#
+# DESCRIPTION
+#
+#   Checks for Python module.
+#
+#   If fatal is non-empty then absence of a module will trigger an error.
+#
+# LICENSE
+#
+#   Copyright (c) 2008 Andrew Collier
+#
+#   Copying and distribution of this file, with or without modification, are
+#   permitted in any medium without royalty provided the copyright notice
+#   and this notice are preserved. This file is offered as-is, without any
+#   warranty.
+
+#serial 6
+
+AU_ALIAS([AC_PYTHON_MODULE], [AX_PYTHON_MODULE])
+AC_DEFUN([AX_PYTHON_MODULE],[
+    if test -z $PYTHON;
+    then
+        PYTHON="python"
+    fi
+    PYTHON_NAME=`basename $PYTHON`
+    AC_MSG_CHECKING($PYTHON_NAME module: $1)
+	$PYTHON -c "import $1" 2>/dev/null
+	if test $? -eq 0;
+	then
+		AC_MSG_RESULT(yes)
+		eval AS_TR_CPP(HAVE_PYMOD_$1)=yes
+	else
+		AC_MSG_RESULT(no)
+		eval AS_TR_CPP(HAVE_PYMOD_$1)=no
+		#
+		if test -n "$2"
+		then
+			AC_MSG_ERROR(failed to find required module $1)
+			exit 1
+		fi
+	fi
+])
 
 # pkg.m4 - Macros to locate and utilise pkg-config.            -*- Autoconf -*-
 # serial 1 (pkg-config-0.24)
@@ -1158,6 +1518,305 @@ AC_DEFUN([_AM_SET_OPTIONS],
 # Execute IF-SET if OPTION is set, IF-NOT-SET otherwise.
 AC_DEFUN([_AM_IF_OPTION],
 [m4_ifset(_AM_MANGLE_OPTION([$1]), [$2], [$3])])
+
+# Copyright (C) 1999-2014 Free Software Foundation, Inc.
+#
+# This file is free software; the Free Software Foundation
+# gives unlimited permission to copy and/or distribute it,
+# with or without modifications, as long as this notice is preserved.
+
+# _AM_PROG_CC_C_O
+# ---------------
+# Like AC_PROG_CC_C_O, but changed for automake.  We rewrite AC_PROG_CC
+# to automatically call this.
+AC_DEFUN([_AM_PROG_CC_C_O],
+[AC_REQUIRE([AM_AUX_DIR_EXPAND])dnl
+AC_REQUIRE_AUX_FILE([compile])dnl
+AC_LANG_PUSH([C])dnl
+AC_CACHE_CHECK(
+  [whether $CC understands -c and -o together],
+  [am_cv_prog_cc_c_o],
+  [AC_LANG_CONFTEST([AC_LANG_PROGRAM([])])
+  # Make sure it works both with $CC and with simple cc.
+  # Following AC_PROG_CC_C_O, we do the test twice because some
+  # compilers refuse to overwrite an existing .o file with -o,
+  # though they will create one.
+  am_cv_prog_cc_c_o=yes
+  for am_i in 1 2; do
+    if AM_RUN_LOG([$CC -c conftest.$ac_ext -o conftest2.$ac_objext]) \
+         && test -f conftest2.$ac_objext; then
+      : OK
+    else
+      am_cv_prog_cc_c_o=no
+      break
+    fi
+  done
+  rm -f core conftest*
+  unset am_i])
+if test "$am_cv_prog_cc_c_o" != yes; then
+   # Losing compiler, so override with the script.
+   # FIXME: It is wrong to rewrite CC.
+   # But if we don't then we get into trouble of one sort or another.
+   # A longer-term fix would be to have automake use am__CC in this case,
+   # and then we could set am__CC="\$(top_srcdir)/compile \$(CC)"
+   CC="$am_aux_dir/compile $CC"
+fi
+AC_LANG_POP([C])])
+
+# For backward compatibility.
+AC_DEFUN_ONCE([AM_PROG_CC_C_O], [AC_REQUIRE([AC_PROG_CC])])
+
+# Copyright (C) 1999-2014 Free Software Foundation, Inc.
+#
+# This file is free software; the Free Software Foundation
+# gives unlimited permission to copy and/or distribute it,
+# with or without modifications, as long as this notice is preserved.
+
+
+# AM_PATH_PYTHON([MINIMUM-VERSION], [ACTION-IF-FOUND], [ACTION-IF-NOT-FOUND])
+# ---------------------------------------------------------------------------
+# Adds support for distributing Python modules and packages.  To
+# install modules, copy them to $(pythondir), using the python_PYTHON
+# automake variable.  To install a package with the same name as the
+# automake package, install to $(pkgpythondir), or use the
+# pkgpython_PYTHON automake variable.
+#
+# The variables $(pyexecdir) and $(pkgpyexecdir) are provided as
+# locations to install python extension modules (shared libraries).
+# Another macro is required to find the appropriate flags to compile
+# extension modules.
+#
+# If your package is configured with a different prefix to python,
+# users will have to add the install directory to the PYTHONPATH
+# environment variable, or create a .pth file (see the python
+# documentation for details).
+#
+# If the MINIMUM-VERSION argument is passed, AM_PATH_PYTHON will
+# cause an error if the version of python installed on the system
+# doesn't meet the requirement.  MINIMUM-VERSION should consist of
+# numbers and dots only.
+AC_DEFUN([AM_PATH_PYTHON],
+ [
+  dnl Find a Python interpreter.  Python versions prior to 2.0 are not
+  dnl supported. (2.0 was released on October 16, 2000).
+  m4_define_default([_AM_PYTHON_INTERPRETER_LIST],
+[python python2 python3 python3.3 python3.2 python3.1 python3.0 python2.7 dnl
+ python2.6 python2.5 python2.4 python2.3 python2.2 python2.1 python2.0])
+
+  AC_ARG_VAR([PYTHON], [the Python interpreter])
+
+  m4_if([$1],[],[
+    dnl No version check is needed.
+    # Find any Python interpreter.
+    if test -z "$PYTHON"; then
+      AC_PATH_PROGS([PYTHON], _AM_PYTHON_INTERPRETER_LIST, :)
+    fi
+    am_display_PYTHON=python
+  ], [
+    dnl A version check is needed.
+    if test -n "$PYTHON"; then
+      # If the user set $PYTHON, use it and don't search something else.
+      AC_MSG_CHECKING([whether $PYTHON version is >= $1])
+      AM_PYTHON_CHECK_VERSION([$PYTHON], [$1],
+			      [AC_MSG_RESULT([yes])],
+			      [AC_MSG_RESULT([no])
+			       AC_MSG_ERROR([Python interpreter is too old])])
+      am_display_PYTHON=$PYTHON
+    else
+      # Otherwise, try each interpreter until we find one that satisfies
+      # VERSION.
+      AC_CACHE_CHECK([for a Python interpreter with version >= $1],
+	[am_cv_pathless_PYTHON],[
+	for am_cv_pathless_PYTHON in _AM_PYTHON_INTERPRETER_LIST none; do
+	  test "$am_cv_pathless_PYTHON" = none && break
+	  AM_PYTHON_CHECK_VERSION([$am_cv_pathless_PYTHON], [$1], [break])
+	done])
+      # Set $PYTHON to the absolute path of $am_cv_pathless_PYTHON.
+      if test "$am_cv_pathless_PYTHON" = none; then
+	PYTHON=:
+      else
+        AC_PATH_PROG([PYTHON], [$am_cv_pathless_PYTHON])
+      fi
+      am_display_PYTHON=$am_cv_pathless_PYTHON
+    fi
+  ])
+
+  if test "$PYTHON" = :; then
+  dnl Run any user-specified action, or abort.
+    m4_default([$3], [AC_MSG_ERROR([no suitable Python interpreter found])])
+  else
+
+  dnl Query Python for its version number.  Getting [:3] seems to be
+  dnl the best way to do this; it's what "site.py" does in the standard
+  dnl library.
+
+  AC_CACHE_CHECK([for $am_display_PYTHON version], [am_cv_python_version],
+    [am_cv_python_version=`$PYTHON -c "import sys; sys.stdout.write(sys.version[[:3]])"`])
+  AC_SUBST([PYTHON_VERSION], [$am_cv_python_version])
+
+  dnl Use the values of $prefix and $exec_prefix for the corresponding
+  dnl values of PYTHON_PREFIX and PYTHON_EXEC_PREFIX.  These are made
+  dnl distinct variables so they can be overridden if need be.  However,
+  dnl general consensus is that you shouldn't need this ability.
+
+  AC_SUBST([PYTHON_PREFIX], ['${prefix}'])
+  AC_SUBST([PYTHON_EXEC_PREFIX], ['${exec_prefix}'])
+
+  dnl At times (like when building shared libraries) you may want
+  dnl to know which OS platform Python thinks this is.
+
+  AC_CACHE_CHECK([for $am_display_PYTHON platform], [am_cv_python_platform],
+    [am_cv_python_platform=`$PYTHON -c "import sys; sys.stdout.write(sys.platform)"`])
+  AC_SUBST([PYTHON_PLATFORM], [$am_cv_python_platform])
+
+  # Just factor out some code duplication.
+  am_python_setup_sysconfig="\
+import sys
+# Prefer sysconfig over distutils.sysconfig, for better compatibility
+# with python 3.x.  See automake bug#10227.
+try:
+    import sysconfig
+except ImportError:
+    can_use_sysconfig = 0
+else:
+    can_use_sysconfig = 1
+# Can't use sysconfig in CPython 2.7, since it's broken in virtualenvs:
+# <https://github.com/pypa/virtualenv/issues/118>
+try:
+    from platform import python_implementation
+    if python_implementation() == 'CPython' and sys.version[[:3]] == '2.7':
+        can_use_sysconfig = 0
+except ImportError:
+    pass"
+
+  dnl Set up 4 directories:
+
+  dnl pythondir -- where to install python scripts.  This is the
+  dnl   site-packages directory, not the python standard library
+  dnl   directory like in previous automake betas.  This behavior
+  dnl   is more consistent with lispdir.m4 for example.
+  dnl Query distutils for this directory.
+  AC_CACHE_CHECK([for $am_display_PYTHON script directory],
+    [am_cv_python_pythondir],
+    [if test "x$prefix" = xNONE
+     then
+       am_py_prefix=$ac_default_prefix
+     else
+       am_py_prefix=$prefix
+     fi
+     am_cv_python_pythondir=`$PYTHON -c "
+$am_python_setup_sysconfig
+if can_use_sysconfig:
+    sitedir = sysconfig.get_path('purelib', vars={'base':'$am_py_prefix'})
+else:
+    from distutils import sysconfig
+    sitedir = sysconfig.get_python_lib(0, 0, prefix='$am_py_prefix')
+sys.stdout.write(sitedir)"`
+     case $am_cv_python_pythondir in
+     $am_py_prefix*)
+       am__strip_prefix=`echo "$am_py_prefix" | sed 's|.|.|g'`
+       am_cv_python_pythondir=`echo "$am_cv_python_pythondir" | sed "s,^$am__strip_prefix,$PYTHON_PREFIX,"`
+       ;;
+     *)
+       case $am_py_prefix in
+         /usr|/System*) ;;
+         *)
+	  am_cv_python_pythondir=$PYTHON_PREFIX/lib/python$PYTHON_VERSION/site-packages
+	  ;;
+       esac
+       ;;
+     esac
+    ])
+  AC_SUBST([pythondir], [$am_cv_python_pythondir])
+
+  dnl pkgpythondir -- $PACKAGE directory under pythondir.  Was
+  dnl   PYTHON_SITE_PACKAGE in previous betas, but this naming is
+  dnl   more consistent with the rest of automake.
+
+  AC_SUBST([pkgpythondir], [\${pythondir}/$PACKAGE])
+
+  dnl pyexecdir -- directory for installing python extension modules
+  dnl   (shared libraries)
+  dnl Query distutils for this directory.
+  AC_CACHE_CHECK([for $am_display_PYTHON extension module directory],
+    [am_cv_python_pyexecdir],
+    [if test "x$exec_prefix" = xNONE
+     then
+       am_py_exec_prefix=$am_py_prefix
+     else
+       am_py_exec_prefix=$exec_prefix
+     fi
+     am_cv_python_pyexecdir=`$PYTHON -c "
+$am_python_setup_sysconfig
+if can_use_sysconfig:
+    sitedir = sysconfig.get_path('platlib', vars={'platbase':'$am_py_prefix'})
+else:
+    from distutils import sysconfig
+    sitedir = sysconfig.get_python_lib(1, 0, prefix='$am_py_prefix')
+sys.stdout.write(sitedir)"`
+     case $am_cv_python_pyexecdir in
+     $am_py_exec_prefix*)
+       am__strip_prefix=`echo "$am_py_exec_prefix" | sed 's|.|.|g'`
+       am_cv_python_pyexecdir=`echo "$am_cv_python_pyexecdir" | sed "s,^$am__strip_prefix,$PYTHON_EXEC_PREFIX,"`
+       ;;
+     *)
+       case $am_py_exec_prefix in
+         /usr|/System*) ;;
+         *)
+	   am_cv_python_pyexecdir=$PYTHON_EXEC_PREFIX/lib/python$PYTHON_VERSION/site-packages
+	   ;;
+       esac
+       ;;
+     esac
+    ])
+  AC_SUBST([pyexecdir], [$am_cv_python_pyexecdir])
+
+  dnl pkgpyexecdir -- $(pyexecdir)/$(PACKAGE)
+
+  AC_SUBST([pkgpyexecdir], [\${pyexecdir}/$PACKAGE])
+
+  dnl Run any user-specified action.
+  $2
+  fi
+
+])
+
+
+# AM_PYTHON_CHECK_VERSION(PROG, VERSION, [ACTION-IF-TRUE], [ACTION-IF-FALSE])
+# ---------------------------------------------------------------------------
+# Run ACTION-IF-TRUE if the Python interpreter PROG has version >= VERSION.
+# Run ACTION-IF-FALSE otherwise.
+# This test uses sys.hexversion instead of the string equivalent (first
+# word of sys.version), in order to cope with versions such as 2.2c1.
+# This supports Python 2.0 or higher. (2.0 was released on October 16, 2000).
+AC_DEFUN([AM_PYTHON_CHECK_VERSION],
+ [prog="import sys
+# split strings by '.' and convert to numeric.  Append some zeros
+# because we need at least 4 digits for the hex conversion.
+# map returns an iterator in Python 3.0 and a list in 2.x
+minver = list(map(int, '$2'.split('.'))) + [[0, 0, 0]]
+minverhex = 0
+# xrange is not present in Python 3.0 and range returns an iterator
+for i in list(range(0, 4)): minverhex = (minverhex << 8) + minver[[i]]
+sys.exit(sys.hexversion < minverhex)"
+  AS_IF([AM_RUN_LOG([$1 -c "$prog"])], [$3], [$4])])
+
+# Copyright (C) 2001-2014 Free Software Foundation, Inc.
+#
+# This file is free software; the Free Software Foundation
+# gives unlimited permission to copy and/or distribute it,
+# with or without modifications, as long as this notice is preserved.
+
+# AM_RUN_LOG(COMMAND)
+# -------------------
+# Run COMMAND, save the exit status in ac_status, and log it.
+# (This has been adapted from Autoconf's _AC_RUN_LOG macro.)
+AC_DEFUN([AM_RUN_LOG],
+[{ echo "$as_me:$LINENO: $1" >&AS_MESSAGE_LOG_FD
+   ($1) >&AS_MESSAGE_LOG_FD 2>&AS_MESSAGE_LOG_FD
+   ac_status=$?
+   echo "$as_me:$LINENO: \$? = $ac_status" >&AS_MESSAGE_LOG_FD
+   (exit $ac_status); }])
 
 # Check to make sure that the build environment is sane.    -*- Autoconf -*-
 
