@@ -24,6 +24,6 @@ for i, value in enumerate(tval[0:11]):
         )
 
 
-f = 1000.0/251.0*np.linspace(0, 126, 127)
-plt.plot(f, this.out_final.value[0:127])
+f = 1000.0/2501.0*np.linspace(0, 1250, 1251)
+plt.plot(f, this.out_final.value[0:1251])
 plt.show()

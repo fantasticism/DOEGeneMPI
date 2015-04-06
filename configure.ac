@@ -6,7 +6,9 @@ AC_PREREQ([2.69])
 AC_INIT([DOEGeneMPI], [version-0.1], [joelfred@slac.stanford.edu])
 AM_INIT_AUTOMAKE
 
-PKG_CHECK_MODULES([FFTW3], [fftw3 >= 3.3.4])
+PKG_CHECK_MODULES([FFTW3], [fftw3 >= 3.3.4],
+		  FFTW3_LIBS="$FFTW3_LIBS -lfftw3_mpi"
+		  )
 PKG_CHECK_MODULES([GSL], [gsl >= 1.16])
 
 AX_LIB_HDF5([serial])
